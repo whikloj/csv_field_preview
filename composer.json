@@ -14,8 +14,17 @@
       "name": "Mengyu Zang",
       "homepage": "https://github.com/thetreesofthebaron",
       "role": "Author"
+    },
+    {
+        "name": "Jared Whiklo",
+        "homepage": "https://github.com/whikloj",
+        "role": "Author"
     }
   ],
+  "require": {
+    "php": ">=8.2",
+    "openspout/openspout": "^4"
+  },
   "license": "GPL-2.0-or-later",
   "minimum-stability": "dev"
 }

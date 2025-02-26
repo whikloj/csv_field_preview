@@ -1,0 +1,11 @@
+csv_field_preview.excel_download:
+  path: '/csv_field_preview/excel_download/{file}'
+  defaults:
+    _controller: '\Drupal\csv_field_preview\Controller\ExcelController::streamFile'
+
+  requirements:
+    _permission: 'access content'
+  options:
+    parameters:
+      file:
+        type: entity:file

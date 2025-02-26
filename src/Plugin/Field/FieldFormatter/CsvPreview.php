@@ -4,6 +4,7 @@ namespace Drupal\csv_field_preview\Plugin\Field\FieldFormatter;
 
 use Drupal\Core\Field\FormatterBase;
 use Drupal\Core\Field\FieldItemListInterface;
+use Drupal\Core\Url;
 
 /**
  * Field Formatter.
@@ -23,8 +24,14 @@ class CsvPreview extends FormatterBase {
   public function viewElements(FieldItemListInterface $items, $langcode) {
     $elements = [];
     foreach ($items as $delta => $item) {
-      if ($item->entity->getMimeType() == 'text/csv') {
-        $file_url = file_create_url($item->entity->getFileUri());
+      $mimetype = $item->entity->getMimeType();
+      if ($mimetype == 'text/csv') {
+        $file_url = \Drupal::getContainer()->get('file_url_generator')->generateAbsoluteString($item->entity->getFileUri());
+      }
+      elseif ($mimetype == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+        $file_url = Url::fromRoute('csv_field_preview.excel_download', ['file' => $item->entity->id()])->toString();
+      }
+      if (isset($file_url)) {
         $html = [
           '#type' => 'html_tag',
           '#tag' => 'div',
