@@ -1,26 +1,26 @@
 papaparse:
   remote: https://github.com/mholt/PapaParse
-  version: 5.1.0
+  version: 5.5.2
   license:
     name: MIT
-    url: https://github.com/mholt/PapaParse/blob/master/LICENSE
+    url: https://github.com/mholt/PapaParse/blob/e3c7b2628c68b868fd09862252eea312fbafdd84/LICENSE
     gpl-compatible: true
   js:
-    https://cdn.jsdelivr.net/npm/papaparse@5: { type: external, minified: true }
+    https://cdn.jsdelivr.net/npm/papaparse@5.5.2: { type: external, minified: true }
 
 
 handsontable:
   remote: https://github.com/handsontable/handsontable
-  version: 7.1.1
+  version: 6.2.2
   license:
     name: MIT
-    url: https://github.com/handsontable/handsontable/blob/master/LICENSE.txt
+    url: https://github.com/handsontable/handsontable/blob/6.2.2/LICENSE
     gpl-compatible: true
   js:
-    https://cdn.jsdelivr.net/npm/handsontable@0.38.1/dist/handsontable.min.js: { type: external, minified: true }
+    https://cdn.jsdelivr.net/npm/handsontable@6.2.2/dist/handsontable.min.js: { type: external, minified: true }
   css:
     theme:
-      https://cdn.jsdelivr.net/npm/handsontable@0.38.1/dist/handsontable.min.css: { type: external, minified: true }
+      https://cdn.jsdelivr.net/npm/handsontable@6.2.2/dist/handsontable.min.css: { type: external, minified: true }
 
 drupal.csv:
   dependencies:
