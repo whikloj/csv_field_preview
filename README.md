@@ -31,4 +31,4 @@ Once selected you can also configure the formatter to:
 
 ## Authors
 * Mengyu Zang <mzang@upei.ca>
-* [Jared Whiklo](https://github.com/whikloj) 
+* [Jared Whiklo](https://github.com/whikloj)
