@@ -26,6 +26,8 @@ drupal.csv:
   dependencies:
     - csv_field_preview/papaparse
     - csv_field_preview/handsontable
+    - core/Drupal
+    - core/drupalSettings
   js:
     js/csv.js: {}
   css:
