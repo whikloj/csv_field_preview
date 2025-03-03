@@ -75,7 +75,8 @@ class CsvPreview extends FormatterBase {
       if ($mimetype == 'text/csv') {
         $file_url = \Drupal::getContainer()->get('file_url_generator')->generateAbsoluteString($item->entity->getFileUri());
       }
-      elseif ($mimetype == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+      elseif ($mimetype == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        $mimetype == 'application/vnd.ms-excel') {
         $file_url = Url::fromRoute(
           'csv_field_preview.excel_download',
           [

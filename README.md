@@ -6,12 +6,14 @@ This module uses Handsontable to show csv file attachments. It is using [version
 ## Installation
 This module is not currently available on Drupal.org. You can download the module from the GitHub repository and install it manually.
 You will also need to install the following libraries:
-* [OpenSpout ^4](https://github.com/openspout/openspout)
+* [PhpSpreadsheet:^4](https://github.com/PHPOffice/PhpSpreadsheet)
+
+PhpSpreadsheet might have memory issues with larger files, but it is able to open older Excel 97 files.
 
 Once you have cloned this repository into your Drupal 10, `web/modules/contrib` directory.
 Then move to the root of your Drupal 10 installation and run the following command:
 ```bash
-composer require "openspout/openspout:^4"
+composer require "phpoffice/phpspreadsheet:^4"
 ```
 Then, you can install the module by running the following command:
 ```bash

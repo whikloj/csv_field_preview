@@ -23,7 +23,7 @@
   ],
   "require": {
     "php": ">=8.2",
-    "openspout/openspout": "^4"
+    "phpoffice/phpspreadsheet": "^4"
   },
   "license": "GPL-2.0-or-later",
   "minimum-stability": "dev"

@@ -8,10 +8,9 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\DependencyInjection\ContainerInjectionInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\file\Entity\File;
-use OpenSpout\Common\Exception\IOException;
-use OpenSpout\Reader\Exception\ReaderNotOpenedException;
-use OpenSpout\Reader\XLSX\Options;
-use OpenSpout\Reader\XLSX\Reader;
+use InvalidArgumentException;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Reader\IReader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -60,6 +59,30 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
   }
 
   /**
+   * Get a reader for a file.
+   * @param string $file The path to the file.
+   * @param bool $skip_empty_lines Whether to skip empty lines or not.
+   * @return IReader The reader object.
+   * @throws InvalidArgumentException If the file type is invalid.
+   */
+  public static function getReader(string $file, bool $skip_empty_lines): IReader {
+    $valid_readers = [
+      IOFactory::READER_ODS,
+      IOFactory::READER_XLSX,
+      IOFactory::READER_XLS,
+    ];
+    $type = IOFactory::identify($file);
+    if (!in_array($type, $valid_readers)) {
+      throw new InvalidArgumentException("Invalid file type.");
+    }
+    $reader = IOFactory::createReader($type);
+    $reader->setReadDataOnly(true);
+    $reader->setIgnoreRowsWithNoCells($skip_empty_lines);
+    $reader->setReadEmptyCells(false);
+    return $reader;
+  }
+
+  /**
    * Stream the first sheet of an Excel file out as it's CSV equivalent.
    *
    * @param File $file The file to stream.
@@ -70,35 +93,25 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
     $full_path = $this->getFilePath($file);
     $response = new StreamedResponse();
     $response->headers->set('Content-Type', 'text/csv');
-    $response->setCallback(static function() use ($full_path, $skip_empty_lines): void {
+    $response->setCallback(static function() use ($full_path, $skip_empty_lines, $mime_type): void {
       try {
-        if (!$skip_empty_lines) {
-          $options = new Options();
-          $options->SHOULD_PRESERVE_EMPTY_ROWS = true;
-          $reader = new Reader($options);
-        }
-        else {
-          $reader = new Reader();
-        }
-        $reader->open($full_path);
+        $reader = self::getReader($full_path, $skip_empty_lines);
+        $spreadsheet = $reader->load($full_path);
         $i = 0;
-        foreach ($reader->getSheetIterator() as $sheet) {
-          foreach ($sheet->getRowIterator() as $row) {
-            $cells = array_map(function($cell) {
-              return $cell->getValue();
-            }, $row->getCells());
-            echo implode(',', $cells) . PHP_EOL;
-            $i += 1;
-            if ($i > 1000) {
-              flush();
-            }
+        $data = $spreadsheet->getSheet(0)->toArray();
+        foreach ($data as $row) {
+          echo implode(',', $row) . PHP_EOL;
+          $i += 1;
+          if ($i > 1000) {
+            flush();
           }
-          break; // Only read the first sheet.
         }
-      } catch (IOException $e) {
+      } catch (InvalidArgumentException $e) {
         echo "Error reading file: " . $e->getMessage();
       } finally {
-        $reader->close();
+        $data = null;
+        $spreadsheet = null;
+        $reader = null;
       }
     });
     return $response;
@@ -118,32 +131,25 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
     $response->addCacheableDependency($file);
     $response->headers->set('Content-Type', 'text/csv');
     try {
-      if (!$skip_empty_lines) {
-        $options = new Options();
-        $options->SHOULD_PRESERVE_EMPTY_ROWS = true;
-        $reader = new Reader($options);
-      }
-      else {
-        $reader = new Reader();
-      }
-
-      $reader->open($full_path);
+      $reader = self::getReader($full_path, $skip_empty_lines);
+      $spreadsheet = $reader->load($full_path);
       $rows = [];
-      foreach ($reader->getSheetIterator() as $sheet) {
-        foreach ($sheet->getRowIterator() as $row) {
-          $cells = array_map(function ($cell) {
-            return $cell->getValue();
-          }, $row->getCells());
-          $rows[] = implode(',', $cells) . PHP_EOL;
-        }
-        break; // Only read the first sheet.
+      $data = $spreadsheet->getSheet(0)->toArray();
+      foreach ($data as $row) {
+          $rows[] = implode(',', $row) . PHP_EOL;
       }
       $response->setContent(implode('', $rows));
-    } catch (IOException | ReaderNotOpenedException $e) {
+    } catch (InvalidArgumentException $e) {
       $response->setContent("Error reading file: " . $e->getMessage());
       $response->setStatusCode(500);
+      $response->headers->set('Content-Type', 'text/plain');
+      $response->setCache([
+        'max-age' => 0, // Don't cache errors.
+      ]);
     } finally {
-      $reader->close();
+      $data = null;
+      $spreadsheet = null;
+      $reader = null;
     }
     return $response;
   }
@@ -154,10 +160,10 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
    * @return string The path to the file.
    */
   private function getFilePath(File $file): string {
-    // Openspout XLSX Reader can't read from a stream wrapper.
+    // Openspout/ XLSX Reader can't read from a stream wrapper.
     $directory = 'temporary://csv_field_preview';
     $this->fileSystem->prepareDirectory($directory, FileSystemInterface::CREATE_DIRECTORY);
-    $new_filename = $directory . DIRECTORY_SEPARATOR . $file->getFilename() . '.csv';
+    $new_filename = $directory . DIRECTORY_SEPARATOR . $file->getFilename();
     if (!file_exists($new_filename)) {
       $new_filename = $this->fileSystem->copy($file->getFileUri(), $new_filename);
     }
