@@ -12,7 +12,6 @@ use InvalidArgumentException;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExcelController extends ControllerBase implements ContainerInjectionInterface
@@ -47,15 +46,14 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
    * @param File $file The file to load.
    * @param bool $stream Whether to stream the file or not.
    * @param bool $skip Whether to skip empty lines or not.
-   * @param Request $request The request object.
    * @return CacheableResponse|StreamedResponse The response object.
    */
-  public function doGet(File $file, bool $stream, bool $skip, Request $request)
+  public function doGet(File $file, bool $stream, bool $skip)
   {
     if ($stream) {
-      return $this->streamFile($file, $skip, $request);
+      return $this->streamFile($file, $skip);
     }
-    return $this->loadFile($file, $skip, $request);
+    return $this->loadFile($file, $skip);
   }
 
   /**
@@ -87,13 +85,13 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
    *
    * @param File $file The file to stream.
    * @param bool $skip_empty_lines Whether to skip empty lines or not.
-   * @param Request $request The request object.
+   * @return StreamedResponse The response object.
    */
-  public function streamFile(File $file, bool $skip_empty_lines, Request $request) {
+  public function streamFile(File $file, bool $skip_empty_lines) {
     $full_path = $this->getFilePath($file);
     $response = new StreamedResponse();
     $response->headers->set('Content-Type', 'text/csv');
-    $response->setCallback(static function() use ($full_path, $skip_empty_lines, $mime_type): void {
+    $response->setCallback(static function() use ($full_path, $skip_empty_lines): void {
       try {
         $reader = self::getReader($full_path, $skip_empty_lines);
         $spreadsheet = $reader->load($full_path);
@@ -122,10 +120,9 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
    *
    * @param File $file The file to load.
    * @param bool $skip_empty_lines Whether to skip empty lines or not.
-   * @param Request $request The request object.
    * @return CacheableResponse The response object.
    */
-  public function loadFile(File $file, bool $skip_empty_lines, Request $request) {
+  public function loadFile(File $file, bool $skip_empty_lines) {
     $full_path = $this->getFilePath($file);
     $response = new CacheableResponse();
     $response->addCacheableDependency($file);
