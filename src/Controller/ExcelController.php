@@ -9,9 +9,12 @@ use Drupal\Core\DependencyInjection\ContainerInjectionInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\file\Entity\File;
 use OpenSpout\Common\Exception\IOException;
+use OpenSpout\Reader\AbstractReader;
 use OpenSpout\Reader\Exception\ReaderNotOpenedException;
-use OpenSpout\Reader\XLSX\Options;
-use OpenSpout\Reader\XLSX\Reader;
+use OpenSpout\Reader\ODS\Options as OdsOptions;
+use OpenSpout\Reader\ODS\Reader as OdsReader;
+use OpenSpout\Reader\XLSX\Options as XlsxOptions;
+use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -59,6 +62,23 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
     return $this->loadFile($file, $skip, $request);
   }
 
+  public static function getReader(string $mime_type, bool $skip_empty_lines): AbstractReader {
+    if ($mime_type == 'application/vnd.oasis.opendocument.spreadsheet') {
+      $options = new OdsOptions();
+      if (!$skip_empty_lines) {
+        $options->SHOULD_PRESERVE_EMPTY_ROWS = TRUE;
+      }
+      return new OdsReader($options);
+    }
+    else {
+      $options = new XlsxOptions();
+      if (!$skip_empty_lines) {
+        $options->SHOULD_PRESERVE_EMPTY_ROWS = TRUE;
+      }
+      return new XlsxReader($options);
+    }
+  }
+
   /**
    * Stream the first sheet of an Excel file out as it's CSV equivalent.
    *
@@ -68,18 +88,12 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
    */
   public function streamFile(File $file, bool $skip_empty_lines, Request $request) {
     $full_path = $this->getFilePath($file);
+    $mime_type = $file->getMimeType();
     $response = new StreamedResponse();
     $response->headers->set('Content-Type', 'text/csv');
-    $response->setCallback(static function() use ($full_path, $skip_empty_lines): void {
+    $response->setCallback(static function() use ($full_path, $skip_empty_lines, $mime_type): void {
       try {
-        if (!$skip_empty_lines) {
-          $options = new Options();
-          $options->SHOULD_PRESERVE_EMPTY_ROWS = true;
-          $reader = new Reader($options);
-        }
-        else {
-          $reader = new Reader();
-        }
+        $reader = self::getReader($mime_type, $skip_empty_lines);
         $reader->open($full_path);
         $i = 0;
         foreach ($reader->getSheetIterator() as $sheet) {
@@ -114,19 +128,12 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
    */
   public function loadFile(File $file, bool $skip_empty_lines, Request $request) {
     $full_path = $this->getFilePath($file);
+    $mime_type = $file->getMimeType();
     $response = new CacheableResponse();
     $response->addCacheableDependency($file);
     $response->headers->set('Content-Type', 'text/csv');
     try {
-      if (!$skip_empty_lines) {
-        $options = new Options();
-        $options->SHOULD_PRESERVE_EMPTY_ROWS = true;
-        $reader = new Reader($options);
-      }
-      else {
-        $reader = new Reader();
-      }
-
+      $reader = self::getReader($mime_type, $skip_empty_lines);
       $reader->open($full_path);
       $rows = [];
       foreach ($reader->getSheetIterator() as $sheet) {
