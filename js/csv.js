@@ -33,7 +33,6 @@
                 skipEmptyLines: settings.csvFieldPreview.skipEmptyRows,
                 step: function(results) {
                   // Update data on each row.
-                  console.log("Row:", results.data);
                   dataHolder.push(results.data);
                   if (container === null) {
                     container = new Handsontable(file, {
@@ -54,7 +53,6 @@
                   return container;
                 },
                 complete: function() {
-                  console.log("All data loaded");
                   // Once all the data is loaded we can reformat to strip blank columns
                   let maxLength = 0;
                   const trimmedDatas = dataHolder.map(trimTrailingEmptyElements);
