@@ -163,10 +163,32 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
   private function getFilePath(File $file): string {
     // Openspout XLSX Reader can't read from a stream wrapper.
     $directory = 'temporary://csv_field_preview';
-    $this->fileSystem->prepareDirectory($directory, FileSystemInterface::CREATE_DIRECTORY);
-    $new_filename = $directory . DIRECTORY_SEPARATOR . $file->getFilename() . '.csv';
+    if (!$this->fileSystem->prepareDirectory($directory, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS)) {
+      throw new \RuntimeException("Unable to prepare directory '$directory'.");
+    }
+    // Use the file ID so files sharing a name don't collide, include the file changed so that if the file is updated, we get a new copy.
+    $extension = pathinfo($file->getFilename(), PATHINFO_EXTENSION);
+    $new_filename = $directory . '/' . $file->id() . '-' . $file->getChangedTime() . ($extension ? '.' . $extension : '');
     if (!file_exists($new_filename)) {
-      $new_filename = $this->fileSystem->copy($file->getFileUri(), $new_filename);
+      // Stream the contents because fedora:// doesn't support copy().
+      $source = @fopen($file->getFileUri(), 'rb');
+      if ($source === FALSE) {
+        throw new \RuntimeException("Unable to open '{$file->getFileUri()}' for reading.");
+      }
+      $target = @fopen($new_filename, 'wb');
+      if ($target === FALSE) {
+        fclose($source);
+        throw new \RuntimeException("Unable to open '$new_filename' for writing.");
+      }
+      try {
+        if (stream_copy_to_stream($source, $target) === FALSE) {
+          throw new \RuntimeException("Failed copying '{$file->getFileUri()}' to '$new_filename'.");
+        }
+      }
+      finally {
+        fclose($source);
+        fclose($target);
+      }
     }
     return $this->fileSystem->realpath($new_filename);
   }
