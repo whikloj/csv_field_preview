@@ -3,24 +3,26 @@
 namespace Drupal\csv_field_preview\Controller;
 
 
-use Drupal\Core\Cache\CacheableResponse;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\DependencyInjection\ContainerInjectionInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\file\Entity\File;
-use OpenSpout\Common\Exception\IOException;
 use OpenSpout\Reader\AbstractReader;
-use OpenSpout\Reader\Exception\ReaderNotOpenedException;
 use OpenSpout\Reader\ODS\Options as OdsOptions;
 use OpenSpout\Reader\ODS\Reader as OdsReader;
 use OpenSpout\Reader\XLSX\Options as XlsxOptions;
 use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExcelController extends ControllerBase implements ContainerInjectionInterface
 {
+  /**
+   * Temporary directory holding the source copies and converted CSV files.
+   */
+  private const DIRECTORY = 'temporary://csv_field_preview';
+
   /**
    * @var FileSystemInterface $fileSystem
    *
@@ -48,20 +50,32 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
 
   /**
    * Handle the GET request for a file.
+   *
+   * The first sheet is converted to CSV once and the result is kept in the
+   * temporary directory. Later requests serve that file directly, including
+   * Range and conditional (ETag/Last-Modified) requests.
+   *
    * @param File $file The file to load.
-   * @param bool $stream Whether to stream the file or not.
    * @param bool $skip Whether to skip empty lines or not.
    * @param Request $request The request object.
-   * @return CacheableResponse|StreamedResponse The response object.
+   * @return BinaryFileResponse The response object.
    */
-  public function doGet(File $file, bool $stream, bool $skip, Request $request)
+  public function doGet(File $file, bool $skip, Request $request): BinaryFileResponse
   {
-    if ($stream) {
-      return $this->streamFile($file, $skip, $request);
-    }
-    return $this->loadFile($file, $skip, $request);
+    $csv_path = $this->getCsvPath($file, $skip);
+    $response = new BinaryFileResponse($csv_path, 200, ['Content-Type' => 'text/csv']);
+    $response->setAutoEtag();
+    $response->setAutoLastModified();
+    return $response;
   }
 
+  /**
+   * Get the correct OpenSpout reader for the given MIME type.
+   * @param string $mime_type The MIME type of the file.
+   * @param bool $skip_empty_lines Whether to skip empty lines or not.
+   *
+   * @return \OpenSpout\Reader\AbstractReader
+   */
   public static function getReader(string $mime_type, bool $skip_empty_lines): AbstractReader {
     if ($mime_type == 'application/vnd.oasis.opendocument.spreadsheet') {
       $options = new OdsOptions();
@@ -80,114 +94,168 @@ class ExcelController extends ControllerBase implements ContainerInjectionInterf
   }
 
   /**
-   * Stream the first sheet of an Excel file out as it's CSV equivalent.
+   * Get the path of the CSV version of a file, creating it if necessary.
    *
-   * @param File $file The file to stream.
+   * @param File $file The spreadsheet file.
    * @param bool $skip_empty_lines Whether to skip empty lines or not.
-   * @param Request $request The request object.
+   * @return string The real path of the CSV file.
    */
-  public function streamFile(File $file, bool $skip_empty_lines, Request $request) {
-    $full_path = $this->getFilePath($file);
-    $mime_type = $file->getMimeType();
-    $response = new StreamedResponse();
-    $response->headers->set('Content-Type', 'text/csv');
-    $response->setCallback(static function() use ($full_path, $skip_empty_lines, $mime_type): void {
-      try {
-        $reader = self::getReader($mime_type, $skip_empty_lines);
-        $reader->open($full_path);
-        $i = 0;
-        foreach ($reader->getSheetIterator() as $sheet) {
-          foreach ($sheet->getRowIterator() as $row) {
-            $cells = array_map(function($cell) {
-              return $cell->getValue();
-            }, $row->getCells());
-            echo implode(',', $cells) . PHP_EOL;
-            $i += 1;
-            if ($i > 1000) {
-              flush();
-            }
-          }
-          break; // Only read the first sheet.
-        }
-      } catch (IOException $e) {
-        echo "Error reading file: " . $e->getMessage();
-      } finally {
-        $reader->close();
-      }
-    });
-    return $response;
+  private function getCsvPath(File $file, bool $skip_empty_lines): string {
+    $csv_uri = $this->getCacheUri($file, 'csv', $skip_empty_lines);
+    if (!file_exists($csv_uri)) {
+      $this->convertToCsv($file, $csv_uri, $skip_empty_lines);
+    }
+    return $this->fileSystem->realpath($csv_uri);
   }
 
   /**
-   * Return the first sheet of an Excel file as a CSV string.
+   * Convert the first sheet of a spreadsheet to CSV.
    *
-   * @param File $file The file to load.
+   * Writes to a temporary name and renames, so a concurrent request never
+   * serves a partially written file.
+   *
+   * @param File $file The spreadsheet file.
+   * @param string $csv_uri The URI to write the CSV to.
    * @param bool $skip_empty_lines Whether to skip empty lines or not.
-   * @param Request $request The request object.
-   * @return CacheableResponse The response object.
    */
-  public function loadFile(File $file, bool $skip_empty_lines, Request $request) {
-    $full_path = $this->getFilePath($file);
-    $mime_type = $file->getMimeType();
-    $response = new CacheableResponse();
-    $response->addCacheableDependency($file);
-    $response->headers->set('Content-Type', 'text/csv');
+  private function convertToCsv(File $file, string $csv_uri, bool $skip_empty_lines): void {
+    $source_path = $this->getSourceFilePath($file);
+    $final = $this->fileSystem->realpath(self::DIRECTORY) . '/' . basename($csv_uri);
+    $partial = $final . '.' . bin2hex(random_bytes(6)) . '.part';
+
+    $target = fopen($partial, 'wb');
+    if ($target === FALSE) {
+      throw new \RuntimeException("Unable to open '$partial' for writing.");
+    }
+    $reader = self::getReader($file->getMimeType(), $skip_empty_lines);
     try {
-      $reader = self::getReader($mime_type, $skip_empty_lines);
-      $reader->open($full_path);
-      $rows = [];
+      $reader->open($source_path);
       foreach ($reader->getSheetIterator() as $sheet) {
         foreach ($sheet->getRowIterator() as $row) {
-          $cells = array_map(function ($cell) {
-            return $cell->getValue();
+          $values = array_map(static function ($cell) {
+            $value = $cell->getValue();
+            if ($value instanceof \DateTimeInterface) {
+              return $value->format('Y-m-d H:i:s');
+            }
+            if (is_bool($value)) {
+              return $value ? 'TRUE' : 'FALSE';
+            }
+            return $value;
           }, $row->getCells());
-          $rows[] = implode(',', $cells) . PHP_EOL;
+          fputcsv($target, $values, ',', '"', '');
         }
         break; // Only read the first sheet.
       }
-      $response->setContent(implode('', $rows));
-    } catch (IOException | ReaderNotOpenedException $e) {
-      $response->setContent("Error reading file: " . $e->getMessage());
-      $response->setStatusCode(500);
-    } finally {
+      fclose($target);
+      $target = NULL;
+      if (!rename($partial, $final)) {
+        throw new \RuntimeException("Unable to move '$partial' to '$final'.");
+      }
+    }
+    catch (\Throwable $e) {
+      $this->getLogger('csv_field_preview')->error('Unable to convert @uri to CSV: @message', [
+        '@uri' => $file->getFileUri(),
+        '@message' => $e->getMessage(),
+      ]);
+      throw $e;
+    }
+    finally {
+      if (is_resource($target)) {
+        fclose($target);
+      }
+      if (file_exists($partial)) {
+        @unlink($partial);
+      }
       $reader->close();
     }
-    return $response;
   }
 
   /**
-   * Get the file path for a file after (potentially) copying it to a local directory.
-   * @param File $file The file to get the path for.
-   * @return string The path to the file.
+   * Build the URI of a cached file in the temporary directory.
+   *
+   * The file ID and changed time mean an updated file gets a new copy.
+   *
+   * @param File $file The file.
+   * @param string $extension The extension of the cached file.
+   * @param bool|null $skip_empty_lines Include the skip setting in the name, as it changes the output.
+   * @return string The URI.
    */
-  private function getFilePath(File $file): string {
-    // Openspout XLSX Reader can't read from a stream wrapper.
-    $directory = 'temporary://csv_field_preview';
+  private function getCacheUri(File $file, string $extension, ?bool $skip_empty_lines = NULL): string {
+    $directory = self::DIRECTORY;
     if (!$this->fileSystem->prepareDirectory($directory, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS)) {
       throw new \RuntimeException("Unable to prepare directory '$directory'.");
     }
-    // Use the file ID so files sharing a name don't collide, include the file changed so that if the file is updated, we get a new copy.
-    $extension = pathinfo($file->getFilename(), PATHINFO_EXTENSION);
-    $new_filename = $directory . '/' . $file->id() . '-' . $file->getChangedTime() . ($extension ? '.' . $extension : '');
+    $name = $file->id() . '-' . $file->getChangedTime();
+    if ($skip_empty_lines !== NULL) {
+      $name .= $skip_empty_lines ? '-skip' : '-keep';
+    }
+    return $directory . '/' . $name . '.' . $extension;
+  }
+
+  /**
+   * Get the file path for the source file after streaming it to the temporary directory.
+   *
+   * @param File $file The file to get the path for.
+   * @return string The path to the file.
+   */
+  private function getSourceFilePath(File $file): string {
+    // Openspout can't read from a stream wrapper so download to a local file.
+    $extension = pathinfo($file->getFilename(), PATHINFO_EXTENSION) ?: 'bin';
+    $new_filename = $this->getCacheUri($file, $extension);
     if (!file_exists($new_filename)) {
       // Stream the contents because fedora:// doesn't support copy().
-      $source = @fopen($file->getFileUri(), 'rb');
-      if ($source === FALSE) {
-        throw new \RuntimeException("Unable to open '{$file->getFileUri()}' for reading.");
+      // Drupal's error handler hides the warning from error_get_last().
+      $error = 'unknown error';
+      set_error_handler(static function (int $no, string $message) use (&$error): bool {
+        $error = $message;
+        return TRUE;
+      });
+      // The Fedora Flysystem adapter forwards the current request's Range
+      // header to Fedora, but that range is meant for our response and not
+      // the source file. Remove it for this read only.
+      $request = \Drupal::requestStack()->getCurrentRequest();
+      $range = $request?->headers->get('Range');
+      $request?->headers->remove('Range');
+      try {
+        $source = fopen($file->getFileUri(), 'rb');
       }
-      $target = @fopen($new_filename, 'wb');
+      catch (\Throwable $e) {
+        $source = FALSE;
+        $error = get_class($e) . ': ' . $e->getMessage();
+      }
+      finally {
+        restore_error_handler();
+        if ($range !== NULL) {
+          $request->headers->set('Range', $range);
+        }
+      }
+      if ($source === FALSE) {
+        throw new \RuntimeException("Unable to open '{$file->getFileUri()}' for reading: $error");
+      }
+      $partial = $this->fileSystem->realpath(self::DIRECTORY) . '/' . basename($new_filename) . '.' . bin2hex(random_bytes(6)) . '.part';
+      $target = @fopen($partial, 'wb');
       if ($target === FALSE) {
         fclose($source);
-        throw new \RuntimeException("Unable to open '$new_filename' for writing.");
+        throw new \RuntimeException("Unable to open '$partial' for writing.");
       }
       try {
         if (stream_copy_to_stream($source, $target) === FALSE) {
-          throw new \RuntimeException("Failed copying '{$file->getFileUri()}' to '$new_filename'.");
+          throw new \RuntimeException("Failed copying '{$file->getFileUri()}' to '$partial'.");
+        }
+        fclose($target);
+        $target = NULL;
+        if (!rename($partial, $this->fileSystem->realpath(self::DIRECTORY) . '/' . basename($new_filename))) {
+          throw new \RuntimeException("Unable to move '$partial' to '$new_filename'.");
         }
       }
       finally {
         fclose($source);
-        fclose($target);
+        if (is_resource($target)) {
+          fclose($target);
+        }
+        if (file_exists($partial)) {
+          @unlink($partial);
+        }
       }
     }
     return $this->fileSystem->realpath($new_filename);

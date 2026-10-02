@@ -24,7 +24,6 @@ class CsvPreview extends FormatterBase {
    */
   public static function defaultSettings() {
     return [
-        'stream_response' => false,
         'skip_empty_rows' => true,
       ] + parent::defaultSettings();
   }
@@ -35,13 +34,6 @@ class CsvPreview extends FormatterBase {
   public function settingsForm(array $form, FormStateInterface $form_state)
   {
     $form = parent::settingsForm($form, $form_state);
-    $form['stream_response'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Stream response'),
-      '#description' => $this->t('Stream the response of any conversion from Excel to CSV, instead of downloading it.' .
-        ' This is useful for large files but the response is not cached.'),
-      '#default_value' => $this->getSetting('stream_response'),
-    ];
     $form['skip_empty_rows'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Skip empty rows'),
@@ -57,10 +49,8 @@ class CsvPreview extends FormatterBase {
   public function settingsSummary() {
     $summary = parent::settingsSummary();
 
-    $stream = $this->getSetting('stream_response');
     $skip = $this->getSetting('skip_empty_rows');
-    $message = $stream ? $this->t('Stream response') : $this->t('Download response');
-    $message .= $skip ? $this->t(' and skip empty lines') : $this->t(' and do not skip empty lines');
+    $message = $skip ? $this->t('Skip empty lines') : $this->t('Do not skip empty lines');
     $summary[] = $message;
     return $summary;
   }
@@ -81,7 +71,6 @@ class CsvPreview extends FormatterBase {
           'csv_field_preview.excel_download',
           [
             'file' => $item->entity->id(),
-            'stream' => $this->getSetting('stream_response'),
             'skip' => $this->getSetting('skip_empty_rows'),
           ]
         )->toString();

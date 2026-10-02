@@ -26,8 +26,10 @@ Then, you can add a new field and select the field type as "File" and the widget
 For a File field, you can now select the Format of "csv_preview: Display the first page".
 
 Once selected you can also configure the formatter to:
-* Stream response - For Excel files, this will change the response to a stream response. It is not cacheable but faster for large files.
 * Skip empty rows - By default we skip empty rows to make the table smaller. This allows you to display empty rows.
+
+## How Excel files are handled
+The first sheet of an Excel/ODS file is converted to CSV the first time it is requested and the result is kept in Drupal's temporary directory (`temporary://csv_field_preview`). Later requests serve that file directly, so large files are only converted once. A new copy is made if the file entity changes or if the "Skip empty rows" setting is different. Clearing the temporary directory simply causes the conversion to run again.
 
 ## Authors
 * Mengyu Zang <mzang@upei.ca>

@@ -1,5 +1,5 @@
 csv_field_preview.excel_download:
-  path: '/csv_field_preview/excel_download/{file}/{stream}/{skip}'
+  path: '/csv_field_preview/excel_download/{file}/{skip}'
   defaults:
     _controller: '\Drupal\csv_field_preview\Controller\ExcelController::doGet'
   requirements:
@@ -8,7 +8,5 @@ csv_field_preview.excel_download:
     parameters:
       file:
         type: entity:file
-      stream:
-        type: boolean
       skip:
         type: boolean
