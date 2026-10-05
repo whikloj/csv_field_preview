@@ -1,8 +1,8 @@
 {
-  "name": "islandora-rdm/csv_field_preview",
+  "name": "whikloj/csv_field_preview",
   "description": "Field formatter to display CSV files",
   "type": "drupal-module",
-  "homepage": "https://github.com/roblib/csv_field_preview",
+  "homepage": "https://github.com/whikloj/csv_field_preview",
   "authors":
   [
     {
